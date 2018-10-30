@@ -51,7 +51,7 @@ namespace Unsaturated {
 		using ThisClass = AudioSamplerStream<SampleType>;
 	
 	public:
-		static constexpr int BlockSize = 4096;
+		static constexpr int BlockSize = 2048;
 		static constexpr int NumBlocks = 3;
 		static constexpr int SamplesPerBlock = BlockSize/sizeof(SampleType);
 

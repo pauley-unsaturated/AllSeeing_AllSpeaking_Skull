@@ -26,6 +26,7 @@
 
 #include <Adafruit_SPIFlash.h>
 #include <Adafruit_SPIFlash_FatFs.h>
+#include <Servo.h>
 
 #if defined(min)
 #undef min
@@ -49,6 +50,8 @@ SDFileWrapper soundFile("/HelloThere_DS.wav", fatfs);
 WavLoader wavLoader;
 Unsaturated::AudioSamplerStream<int16_t> soundStream;
 
+int16_t soundRingBuf[1024];
+Servo jawServo;
 bool sampleIsPlaying = false;
 bool isTriggered = false;
 
@@ -288,6 +291,11 @@ void setup(void) {
 #endif
 
 
+
+///// SERVO /////
+  jawServo.attach(4); // Using the NeoPixel port
+  jawServo.write(0);
+
 ///// FLASH INITIALIZATION ///////
 
   Serial.println("Starting SPI Flash\n");
@@ -311,7 +319,7 @@ void setup(void) {
   }
   
   // Setup the Timer
-  Timer_Configure(22050, 20, NULL, &renderSample, &primeStream);
+  Timer_Configure(22050, 60, NULL, &renderSample, &primeStream);
   startTime = millis(); // For frame-rate calculation
   analogWriteResolution(10);
   analogWrite(A0, 0);
@@ -325,6 +333,7 @@ void setup(void) {
 }
 
 void primeStream(void* context) {
+  static int divisor = 0;
   //Serial.println("prime_stream");
   if(digitalRead(MOTION_SENSOR_PIN)) {  
     //Proximity triggered
@@ -343,7 +352,24 @@ void primeStream(void* context) {
       isTriggered = false;
     }
   }
-  
+  divisor++;
+  if (sampleIsPlaying && !(divisor % 5)) {
+    long unsigned meansquared = 0;
+    
+    for (int16_t *ptr = soundRingBuf,  *end = soundRingBuf + (sizeof(soundRingBuf) / sizeof(soundRingBuf[0])); 
+          ptr < end; ptr++) {
+      int16_t val = *ptr;
+      meansquared += val * val;
+    }
+    meansquared /= (sizeof(soundRingBuf) / sizeof(soundRingBuf[0]));
+    meansquared >>= 16;
+    meansquared *= 90;
+    meansquared >>= 10;
+    meansquared *= meansquared>>1;
+    meansquared *= 10;
+    Serial.println("Servo: " + String(meansquared));
+    jawServo.write(meansquared);
+  }
   
   while (soundStream.prime()) {
     Serial.println("Primed stream");
@@ -351,18 +377,23 @@ void primeStream(void* context) {
 }
 
 void renderSample(void* context) {
-  int16_t sample = 0;
-  if (1 != soundStream.read(&sample, 1)) {
+  static int16_t* ringBufPtr = soundRingBuf;
+  if (1 != soundStream.read(ringBufPtr, 1)) {
     Timer_Disable();
     Serial.println("Sound Done (idx = " + String(soundStream.sample_index()) + ")" );
     sampleIsPlaying = false;
+    jawServo.write(0);
   }
   else {
-    int32_t val = sample;
+    int32_t val = *ringBufPtr;
     val += 32768;
     val &= 0x1ffff;
     val >>= 7;
     analogWrite(A0, (int)val);
+    ringBufPtr++;
+    if (ringBufPtr - soundRingBuf >= (sizeof(soundRingBuf) / sizeof(soundRingBuf[0]))) {
+      ringBufPtr = soundRingBuf;
+    }
   }
 }
 
